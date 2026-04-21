@@ -4840,36 +4840,28 @@ with gr.Blocks(title="Z-Image") as demo:
                 mx.save_safetensors(str(file_path), converted_weights)
                 
             elif precision == "FP8":
-                # Use MLX's mxfp8 quantization mode
-                # FP8 quantization in MLX requires specific handling
-                # For transformer weights, we quantize to 8-bit using the mxfp8 mode
+                # FP8 quantization is handled separately below by
+                # _apply_fp8_quantization, which writes MLX's native quantized
+                # format (weight + scales + biases) using group_size=64 to
+                # match the model loader (see load_mlx_models). Here we just
+                # ensure non-transformer weights are stored as float16, since
+                # the VAE conv layers and text encoder are not quantized.
+                if weight_file == "weights.safetensors":
+                    # Skip - handled by _apply_fp8_quantization after the loop.
+                    continue
                 converted_weights = {}
                 for key, value in weights.items():
-                    # Only quantize 2D+ tensors (weights), not biases or 1D params
-                    if len(value.shape) >= 2 and value.shape[-1] % 32 == 0:
-                        try:
-                            # mxfp8 mode quantizes to 4 bits but stores as fp8 scales
-                            # For actual fp8 storage, we convert to float16 first then apply
-                            # the quantization at load time
-                            # Since MLX's mxfp8 is actually 4-bit, we use 8-bit affine quantization
-                            wq, scales, biases = mx.quantize(value, group_size=32, bits=8, mode="affine")
-                            # Store quantized format - but for simplicity, we'll store dequantized fp16
-                            # as true fp8 storage requires model architecture changes
-                            dequantized = mx.dequantize(wq, scales, biases, group_size=32, bits=8)
-                            converted_weights[key] = dequantized.astype(mx.float16)
-                        except Exception:
-                            # Fall back to float16 for tensors that can't be quantized
-                            if value.dtype in [mx.float32, mx.bfloat16]:
-                                converted_weights[key] = value.astype(mx.float16)
-                            else:
-                                converted_weights[key] = value
+                    if value.dtype in [mx.float32, mx.bfloat16]:
+                        converted_weights[key] = value.astype(mx.float16)
                     else:
-                        # Keep small tensors and biases as-is but ensure float16
-                        if value.dtype in [mx.float32, mx.bfloat16]:
-                            converted_weights[key] = value.astype(mx.float16)
-                        else:
-                            converted_weights[key] = value
+                        converted_weights[key] = value
                 mx.save_safetensors(str(file_path), converted_weights)
+
+        # For FP8, perform the actual transformer quantization using the
+        # shared helper so the on-disk format matches what load_mlx_models
+        # expects (group_size=64, 8-bit affine, with .scales/.biases keys).
+        if precision == "FP8":
+            _apply_fp8_quantization(model_path, progress)
         
         # Update config to note the precision
         config_path = model_path / "config.json"
