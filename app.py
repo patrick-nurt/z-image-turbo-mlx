@@ -990,51 +990,86 @@ def _apply_fp8_quantization(model_path, progress=None):
     # VAE conv layers are incompatible with MLX quantization
     weight_files = ["weights.safetensors"]
     group_size = 64  # Must match the group_size used in load_mlx_models
-    
+
+    def _safe_progress(msg):
+        # Gradio's ``Progress.__call__`` requires the positional ``progress``
+        # argument in every supported version; calling ``progress(desc=...)``
+        # raises ``TypeError``.  Pass ``None`` explicitly to update only the
+        # description, and never let a broken progress callback abort
+        # quantization.
+        if not progress:
+            return
+        try:
+            progress(None, desc=msg)
+        except Exception:
+            pass
+
     for weight_file in weight_files:
         file_path = model_path / weight_file
         if not file_path.exists():
             continue
-        
-        if progress:
-            progress(desc=f"Quantizing {weight_file}...")
-        
+
+        _safe_progress(f"Quantizing {weight_file}...")
+
         orig_size = file_path.stat().st_size
         weights = mx.load(str(file_path))
+
+        # Some converters (notably ``src/convert_to_mlx.py`` used by the
+        # Hugging Face download flow) keep the attention projection as a
+        # single fused ``qkv.weight`` tensor, while the model is built with
+        # separate ``to_q``/``to_k``/``to_v`` linear layers.  When weights are
+        # quantized the loader can no longer split a packed-uint32 tensor on
+        # the fly, so we must split QKV here, before quantization, to match
+        # the ``QuantizedLinear`` layout the model expects at load time.
+        split_weights = {}
+        for key, value in weights.items():
+            if ".attention.qkv.weight" in key and len(value.shape) >= 2 and value.shape[0] % 3 == 0:
+                base_key = key.replace(".qkv.weight", "")
+                q, k, v = mx.split(value, 3, axis=0)
+                split_weights[f"{base_key}.to_q.weight"] = q
+                split_weights[f"{base_key}.to_k.weight"] = k
+                split_weights[f"{base_key}.to_v.weight"] = v
+            else:
+                split_weights[key] = value
+        weights = split_weights
+
         quantized_weights = {}
         q_count = 0
-        
+
         for key, value in weights.items():
             # Only quantize weight matrices with compatible dimensions
             can_quantize = (
-                len(value.shape) >= 2 and 
-                value.shape[-1] >= group_size and 
+                len(value.shape) >= 2 and
+                value.shape[-1] >= group_size and
                 value.shape[-1] % group_size == 0 and
                 "weight" in key
             )
-            
+
             if can_quantize:
                 try:
                     # Quantize with 8-bit affine mode
                     wq, scales, biases = mx.quantize(value, group_size=group_size, bits=8)
                     # Evaluate to force computation before saving
                     mx.eval(wq, scales, biases)
-                    
+
                     # Store in MLX's quantized format
                     quantized_weights[key] = wq
                     quantized_weights[key.replace(".weight", ".scales")] = scales
                     quantized_weights[key.replace(".weight", ".biases")] = biases
                     q_count += 1
-                except Exception:
-                    # Fall back to keeping original
+                except Exception as quant_err:
+                    # Fall back to keeping original; surface the failure in
+                    # the backend logs so a future "list index out of range"
+                    # style error is traceable instead of silent.
+                    print(f"  ! Skipping quantization of {key} ({tuple(value.shape)}): {type(quant_err).__name__}: {quant_err}")
                     quantized_weights[key] = value
             else:
                 # Keep non-weight tensors (biases, norms, etc.) as-is
                 quantized_weights[key] = value
-        
+
         mx.save_safetensors(str(file_path), quantized_weights)
         new_size = file_path.stat().st_size
-        
+
         print(f"  Quantized {weight_file}: {q_count} tensors, {orig_size/1e9:.2f}GB -> {new_size/1e9:.2f}GB ({new_size/orig_size:.1%})")
 
 
@@ -4824,7 +4859,10 @@ with gr.Blocks(title="Z-Image") as demo:
                 continue
                 
             if progress:
-                progress(desc=f"Converting {weight_file} to {precision}...")
+                try:
+                    progress(None, desc=f"Converting {weight_file} to {precision}...")
+                except Exception:
+                    pass
             
             # Load weights
             weights = mx.load(str(file_path))
@@ -4926,8 +4964,11 @@ with gr.Blocks(title="Z-Image") as demo:
             progress(1.0, desc="Complete!")
             return f"✅ Successfully imported: {model_name}{precision_note}\n\n• PyTorch: {pytorch_save_path}\n• MLX: {mlx_save_path}\n\nYou can now select '{model_name}' from the model dropdown."
         except Exception as e:
-            return f"❌ Error: {str(e)}"
-    
+            import traceback
+            tb = traceback.format_exc()
+            print("❌ download_from_hf failed:\n" + tb)
+            return f"❌ Error: {type(e).__name__}: {e}\n\nSee backend logs for full traceback."
+
     def download_pytorch_only(model_id, custom_name, progress=gr.Progress()):
         """Download model from Hugging Face without MLX conversion"""
         if not model_id or not model_id.strip():
@@ -5020,7 +5061,10 @@ with gr.Blocks(title="Z-Image") as demo:
                 precision_note = f" ({precision})" if precision != "Original" else ""
                 return f"✅ Successfully imported: {model_name}{precision_note}\n\nSaved to: {output_path}\n\nYou can now select '{model_name}' from the model dropdown (PyTorch backend)."
         except Exception as e:
-            return f"❌ Error: {str(e)}"
+            import traceback
+            tb = traceback.format_exc()
+            print("❌ convert_single_file_to_format failed:\n" + tb)
+            return f"❌ Error: {type(e).__name__}: {e}\n\nSee backend logs for full traceback."
     
     def convert_to_mlx(file_path, output_name, precision="FP16", progress=gr.Progress()):
         """Import single-file checkpoint to MLX format"""
