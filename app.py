@@ -993,7 +993,7 @@ def _apply_fp8_quantization(model_path, progress=None):
 
     def _safe_progress(msg):
         # Gradio's ``Progress.__call__`` requires the positional ``progress``
-        # argument in every supported version; calling ``progress(desc=...)``
+        # argument in every supported version; calling ``progress(None, desc=...)``
         # raises ``TypeError``.  Pass ``None`` explicitly to update only the
         # description, and never let a broken progress callback abort
         # quantization.
@@ -1094,7 +1094,7 @@ def _copy_missing_components(output_dir, missing_components, progress=None):
     
     if "VAE" in missing_components:
         if progress is not None:
-            progress(desc="Copying VAE from Z-Image-Turbo-MLX...")
+            progress(None, desc="Copying VAE from Z-Image-Turbo-MLX...")
         
         vae_src = source_model / "vae.safetensors"
         vae_config_src = source_model / "vae_config.json"
@@ -1109,7 +1109,7 @@ def _copy_missing_components(output_dir, missing_components, progress=None):
     
     if "Text Encoder" in missing_components:
         if progress is not None:
-            progress(desc="Copying Text Encoder from Z-Image-Turbo-MLX...")
+            progress(None, desc="Copying Text Encoder from Z-Image-Turbo-MLX...")
         
         te_src = source_model / "text_encoder.safetensors"
         te_config_src = source_model / "text_encoder_config.json"
@@ -1796,7 +1796,7 @@ def apply_loras_to_model(model, lora_configs, progress=None):
         scale = config.get('scale', 1.0)
         
         if progress is not None:
-            progress(desc=f"Applying LoRA: {config['name']} (scale={scale})...")
+            progress(None, desc=f"Applying LoRA: {config['name']} (scale={scale})...")
         
         try:
             lora_weights = load_lora(lora_path)
@@ -2348,7 +2348,7 @@ def apply_upscaler(image, upscaler_name, scale_factor=2.0, progress=None):
         return image
     
     if progress is not None:
-        progress(desc=f"Loading upscaler: {upscaler_name}...")
+        progress(None, desc=f"Loading upscaler: {upscaler_name}...")
     
     model = load_cached_upscaler(upscaler_name)
     if model is None:
@@ -2356,7 +2356,7 @@ def apply_upscaler(image, upscaler_name, scale_factor=2.0, progress=None):
         return image
     
     if progress is not None:
-        progress(desc=f"Upscaling image ({scale_factor}×)...")
+        progress(None, desc=f"Upscaling image ({scale_factor}×)...")
     
     try:
         # ESRGAN always does 4x, then we resize to target scale
@@ -5227,7 +5227,7 @@ with gr.Blocks(title="Z-Image") as demo:
             if pct is not None:
                 progress(pct, desc=desc)
             else:
-                progress(desc=desc)
+                progress(None, desc=desc)
         
         progress(0.01, desc="Starting merge...")
         
