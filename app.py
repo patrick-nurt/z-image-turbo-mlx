@@ -748,7 +748,7 @@ def convert_single_file_to_mlx(single_file_path, output_path=None, progress=None
     else:  # FP16 is default
         target_dtype = "float16"
     
-    if progress:
+    if progress is not None:
         progress(0.05, desc=f"Loading single-file model (target: {precision})...")
     
     all_weights = load_file(single_file_path)
@@ -758,7 +758,7 @@ def convert_single_file_to_mlx(single_file_path, output_path=None, progress=None
     vae_weights = {}
     text_encoder_weights = {}
     
-    if progress:
+    if progress is not None:
         progress(0.2, desc="Separating model components...")
     
     for key, value in all_weights.items():
@@ -794,7 +794,7 @@ def convert_single_file_to_mlx(single_file_path, output_path=None, progress=None
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Convert transformer weights
-    if progress:
+    if progress is not None:
         progress(0.2, desc=f"Converting {len(transformer_weights)} transformer weights...")
     
     if transformer_weights:
@@ -850,7 +850,7 @@ def convert_single_file_to_mlx(single_file_path, output_path=None, progress=None
     # VAE: ComfyUI format uses completely different key names than Diffusers/MLX format
     # (e.g., "decoder.mid.block_1" vs "decoder.mid_block.resnets.0")
     # Rather than complex key mapping, copy from the known-good reference model
-    if progress:
+    if progress is not None:
         progress(0.45, desc="Copying VAE from reference model...")
     
     source_model = Path("models/mlx/Z-Image-Turbo-MLX")
@@ -877,7 +877,7 @@ def convert_single_file_to_mlx(single_file_path, output_path=None, progress=None
         print("  Note: VAE will be downloaded from HuggingFace")
     
     # Convert text encoder weights
-    if progress:
+    if progress is not None:
         progress(0.65, desc=f"Converting {len(text_encoder_weights)} text encoder weights...")
     
     if text_encoder_weights:
@@ -909,12 +909,12 @@ def convert_single_file_to_mlx(single_file_path, output_path=None, progress=None
     
     # Copy missing components from the known-good Z-Image-Turbo-MLX model
     if missing_components:
-        if progress:
+        if progress is not None:
             progress(0.85, desc=f"Copying missing components: {', '.join(missing_components)}...")
         _copy_missing_components(output_dir, missing_components, progress)
     
     # Create default tokenizer and scheduler configs if they don't exist
-    if progress:
+    if progress is not None:
         progress(0.9, desc="Setting up tokenizer and scheduler...")
     
     tokenizer_dir = output_dir / "tokenizer"
@@ -946,7 +946,7 @@ def convert_single_file_to_mlx(single_file_path, output_path=None, progress=None
     
     # Apply FP8 quantization if requested
     if precision == "FP8":
-        if progress:
+        if progress is not None:
             progress(0.92, desc="Applying FP8 quantization...")
         _apply_fp8_quantization(output_dir, progress)
     
@@ -959,7 +959,7 @@ def convert_single_file_to_mlx(single_file_path, output_path=None, progress=None
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
     
-    if progress:
+    if progress is not None:
         progress(1.0, desc="Conversion complete!")
     
     return True
@@ -997,7 +997,7 @@ def _apply_fp8_quantization(model_path, progress=None):
         # raises ``TypeError``.  Pass ``None`` explicitly to update only the
         # description, and never let a broken progress callback abort
         # quantization.
-        if not progress:
+        if progress is None:
             return
         try:
             progress(None, desc=msg)
@@ -1093,7 +1093,7 @@ def _copy_missing_components(output_dir, missing_components, progress=None):
         return
     
     if "VAE" in missing_components:
-        if progress:
+        if progress is not None:
             progress(desc="Copying VAE from Z-Image-Turbo-MLX...")
         
         vae_src = source_model / "vae.safetensors"
@@ -1108,7 +1108,7 @@ def _copy_missing_components(output_dir, missing_components, progress=None):
             print(f"Warning: VAE not found at {vae_src}")
     
     if "Text Encoder" in missing_components:
-        if progress:
+        if progress is not None:
             progress(desc="Copying Text Encoder from Z-Image-Turbo-MLX...")
         
         te_src = source_model / "text_encoder.safetensors"
@@ -1795,7 +1795,7 @@ def apply_loras_to_model(model, lora_configs, progress=None):
         lora_path = Path(LORAS_DIR) / config['name']
         scale = config.get('scale', 1.0)
         
-        if progress:
+        if progress is not None:
             progress(desc=f"Applying LoRA: {config['name']} (scale={scale})...")
         
         try:
@@ -2347,7 +2347,7 @@ def apply_upscaler(image, upscaler_name, scale_factor=2.0, progress=None):
     if scale_factor <= 1.0:
         return image
     
-    if progress:
+    if progress is not None:
         progress(desc=f"Loading upscaler: {upscaler_name}...")
     
     model = load_cached_upscaler(upscaler_name)
@@ -2355,7 +2355,7 @@ def apply_upscaler(image, upscaler_name, scale_factor=2.0, progress=None):
         print(f"Warning: Could not load upscaler {upscaler_name}")
         return image
     
-    if progress:
+    if progress is not None:
         progress(desc=f"Upscaling image ({scale_factor}×)...")
     
     try:
@@ -2548,7 +2548,7 @@ def latent_upscale_mlx(latents, prompt_embeds, model, vae, vae_config, scheduler
     new_w = ((new_w + patch_size - 1) // patch_size) * patch_size
     logger.info(f"Upscaling latents: {h}x{w} → {new_h}x{new_w}")
     
-    if progress:
+    if progress is not None:
         progress(progress_start, desc=f"Latent upscale: {h}×{w} → {new_h}×{new_w}...")
     
     # Step 1: Spatially upscale latents to exact target dimensions
@@ -2565,7 +2565,7 @@ def latent_upscale_mlx(latents, prompt_embeds, model, vae, vae_config, scheduler
     mx.eval(upscaled)
     logger.debug(f"Upsampled latents shape: {upscaled.shape}")
     
-    if progress:
+    if progress is not None:
         progress(progress_start + 0.02, desc="Adding noise for refinement...")
     
     # Step 2: Determine number of refinement steps
@@ -2615,7 +2615,7 @@ def latent_upscale_mlx(latents, prompt_embeds, model, vae, vae_config, scheduler
     logger.info(f"Tiling: {'enabled' if use_tiling else 'disabled'} (tile_size={tile_size}, overlap={overlap})")
     
     if use_tiling:
-        if progress:
+        if progress is not None:
             progress(progress_start + 0.05, desc=f"Using tiled processing ({tile_size}×{tile_size} tiles)...")
         logger.info(f"Starting tiled denoising with {tile_size}x{tile_size} tiles")
         return _latent_upscale_tiled(
@@ -2661,7 +2661,7 @@ def _latent_denoise_steps(latents, prompt_embeds, model, scheduler, timesteps,
         step_num = i + 1
         total_steps = remaining_steps
         
-        if progress:
+        if progress is not None:
             step_progress = progress_start + 0.1 + (0.08 * (step_num / total_steps))
             progress(step_progress, desc=f"Hires step {step_num}/{total_steps}...")
         
@@ -2742,7 +2742,7 @@ def _latent_upscale_tiled(latents, prompt_embeds, model, scheduler, timesteps,
     for step_idx, t in enumerate(timesteps[start_step:]):
         step_num = step_idx + 1
         
-        if progress:
+        if progress is not None:
             step_progress = progress_start + 0.1 + (0.08 * (step_num / remaining_steps))
             progress(step_progress, desc=f"Hires step {step_num}/{remaining_steps} ({total_tiles} tiles)...")
         
@@ -4858,7 +4858,7 @@ with gr.Blocks(title="Z-Image") as demo:
             if not file_path.exists():
                 continue
                 
-            if progress:
+            if progress is not None:
                 try:
                     progress(None, desc=f"Converting {weight_file} to {precision}...")
                 except Exception:
